@@ -1,77 +1,76 @@
 # F1-Vision
-Formula 1 car team and driver classification using deep learning
 
-1. Project Overview
+Formula 1 car team & driver classification using deep learning — a **two-stage ResNet18 system** with a Gradio web demo: upload a car photo, and it first identifies the **team** (Ferrari, McLaren, Mercedes, Red Bull), then the **driver** within that team.
 
-Inspired by my interest in Formula 1, I developed an image classification system to recognize racing cars from four teams: Ferrari, McLaren, Mercedes, and Red Bull.
+## Project Overview
 
-The project explores two tasks:
+This project builds an image classification system that recognizes F1 cars from racing screenshots and official photographs, across different viewing angles and track conditions.
 
-Team Classification: Identifying which of the four teams a car belongs to.
+The project tackles two tasks of increasing difficulty:
 
-Driver Classification: Identifying the driver within each team.
+- **Team classification:** which of the four teams a car belongs to — largely solvable from livery colors and overall shape.
+- **Driver classification:** which driver is in the car — much harder, because the distinguishing cue (the car number) often occupies only a small region of the image.
 
-The project was developed using Python and PyTorch, with a Gradio interface for image-based predictions.
+The project was developed in Python and PyTorch, with a Gradio interface for interactive image-based predictions.
 
-2. Methodology
+## Repository Structure
 
-Dataset
+| File | Purpose |
+|---|---|
+| `train_resnet18_finetune.py` | Fine-tunes ResNet18 on the 4-team dataset (`dataset/`, ImageFolder layout); saves the best-validation checkpoint |
+| `train_driver_model.py` | Trains a team-specific binary driver classifier  |
+| `app_v2.py` | Gradio web app chaining the two stages: team prediction → driver prediction with per-class probabilities |
+| `predict_v12.py` | CLI tool for single-image team prediction with a full probability breakdown |
 
-I collected approximately 750 images from racing screenshots, official car photographs, and other on-track images, covering different viewing angles and racing conditions.
+> Datasets and trained checkpoints (`checkpoints/*.pth`) are not included in the repo; see *Reproducing* below.
 
-Team Classification
+## How It Works
 
-I fine-tuned a pretrained ResNet18 convolutional neural network to distinguish between four F1 teams.
+The system uses **hierarchical two-stage classification**:
 
-Driver Classification
+```
+Input image ──► Stage 1: Team model (ResNet18, 224×224)
+                    │  Ferrari / McLaren / Mercedes / Red Bull
+                    ▼
+                Stage 2: Team-specific driver model (ResNet18, 384×384)
+                    │  e.g. Ferrari → Hamilton vs. Leclerc
+                    ▼
+                Driver prediction (or "Coming Soon" for Red Bull)
+```
 
-Driver identification proved more challenging because distinguishing features, particularly car numbers, often occupied only a small region of an image.
+Driver pairs currently supported: **Ferrari** (Hamilton / Leclerc), **McLaren** (Norris / Piastri), **Mercedes** (Antonelli / Russell). The Red Bull driver classifier is not yet trained.
 
-To address this, I adopted a two-stage approach:
+## Methodology
 
-Identify the team using the four-class model.
+- **Dataset:** ~750 images collected from racing screenshots, official car photographs, and other on-track shots, covering varied angles and conditions. 80/20 train/val split (fixed seed) for every experiment.
+- **Transfer learning:** pretrained ResNet18 with all layers frozen except `layer4` and the classifier head — fine-tuning only the last residual block keeps training light on a small dataset.
+- **Team model:** 224×224 input, Adam, 10 epochs, checkpointing the best validation accuracy.
+- **Driver models:** separate binary classifiers per team, trained at **384×384** resolution to preserve small details like car numbers; no horizontal-flip augmentation, since flipping corrupts number-specific visual information.
+- **Inference:** both stages run back-to-back inside one Gradio request, showing the predicted class, confidence, and full per-class probability distributions.
 
-Use a separate binary classifier to distinguish the two drivers within that team.
+## Results
 
-Driver classification experiments were conducted for Ferrari, Mercedes, and McLaren. The Red Bull driver classifier remains incomplete.
+- **Team classification:** ~97% validation accuracy during fine-tuning.
+- **Driver classification:** less consistent, up to ~85% validation accuracy in the best experiments; performance varied between teams and was limited by training data size and car-number visibility.
 
-3. Results
+> These are validation results on the project's collected dataset, not on a fully independent external benchmark.
 
-The team classification model achieved approximately 97% validation accuracy during fine-tuning.
+## Reproducing
 
-Driver classification results were less consistent, with some experiments reaching approximately 85% validation accuracy. Performance varied between teams and was affected by limited training data and the visibility of car numbers.
-
-These results reflect validation performance on the collected dataset rather than performance on a fully independent external benchmark.
-
-4. Challenges and Lessons Learned
-
-Overfitting: Later training epochs sometimes reduced validation performance, highlighting the importance of monitoring model generalization.
-
-Data augmentation: Some image transformations, such as flipping images horizontally, could interfere with driver-specific visual information. This motivated a more careful approach to preprocessing for driver classification.
-
-Limited visual information: Small or obscured car numbers made it difficult to reliably distinguish drivers using whole-car images.
-
-Model design: Separating team and driver classification made the problem easier to analyze and allowed different models to focus on different identification tasks.
-
-5. Future Improvements
-
-Expand and balance the driver image dataset.
-
-Explore cropping or attention mechanisms focused on driver numbers.
-
-Complete Red Bull driver classification.
-
-Test the models on a larger, independent dataset.
-
-6. Technologies
-
-Python
-
-PyTorch and Torchvision
-
-ResNet18
-
-Gradio
-
-Pillow and Matplotlib
-
+1. Organize images as ImageFolder datasets:
+   ```text
+   dataset/Ferrari/ ... dataset/McLaren/ ... dataset/Mercedes/ ... dataset/RedBull/
+   driver_dataset/Ferrari/Hamilton/ ... driver_dataset/Ferrari/Leclerc/ ...
+   ```
+2. Install dependencies: `torch`, `torchvision`, `gradio`, `Pillow`, `matplotlib`.
+3. Train:
+   ```bash
+   python train_resnet18_finetune.py
+   python train_driver_model.py 
+  
+   ```
+4. Run the demo or the CLI:
+   ```bash
+   python app_v2.py        # launches the Gradio web interface
+   python predict_v12.py path/to/image.jpg
+   ```
